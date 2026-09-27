@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SwiftWork – Task Scheduling</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+
+<body>
+  <!-- Toast notification container -->
+  <div id="toast-container"></div>
+
+  <div class="app-layout">
+
+    <!-- ── Sidebar ───────────────────────────────────────────────── -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <div class="logo-icon-wrap">📋</div>
+        <div>
+          <div class="logo-name">SwiftWork</div>
+          <div class="logo-sub">Task Scheduling</div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a class="nav-item active" onclick="showView('calendar',event)">
+          <span class="nav-icon">📅</span> Task Calendar
+        </a>
+        <a class="nav-item" onclick="showView('list',event)">
+          <span class="nav-icon">✅</span> Task List
+        </a>
+      </nav>
+
+      <div class="sidebar-bottom">
+        <div class="sidebar-user">
+          <div id="sb-avatar" class="avatar"></div>
+          <div>
+            <div id="sb-name" class="sb-name"></div>
+            <div id="sb-role" class="sb-role"></div>
+          </div>
+        </div>
+        <a class="nav-item logout-item" onclick="logout()">
+          <span class="nav-icon">🚪</span> Logout
+        </a>
+      </div>
+    </aside>
+
+    <!-- ── Main ──────────────────────────────────────────────────── -->
+    <div class="main-content">
+      <div class="topbar">
+        <div class="topbar-left">
+          <h1 id="view-title">Task Calendar</h1>
+        </div>
+        <div class="topbar-right">
+          <div class="week-nav" id="week-nav">
+            <button class="week-btn" onclick="changeWeek(-1)">&#8249;</button>
+            <span class="week-label" id="week-label"></span>
+            <button class="week-btn" onclick="changeWeek(1)">&#8250;</button>
+            <button class="today-btn" onclick="goToday()">Today</button>
+          </div>
+          <button id="create-btn" class="btn-create" style="display:none" onclick="openCreateForm()">
+            + Create Task
+          </button>
+        </div>
+      </div>
+
+      <!-- Calendar View -->
+      <div id="view-calendar" class="view-panel">
+        <div class="calendar-wrapper">
+          <div class="cal-grid" id="cal-grid"></div>
+        </div>
+        <div class="job-table-section">
+          <h3 class="table-title">Tasks this week</h3>
+          <table class="job-table">
+            <thead>
+              <tr>
+                <th>Task</th>
+                <th>Status</th>
+                <th>Progress</th>
+                <th>Team</th>
+                <th>Start</th>
+                <th>End</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="job-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- List View -->
+      <div id="view-list" class="view-panel" style="display:none">
+        <div class="list-filters">
+          <input type="date" id="list-date" onchange="renderListView()" class="filter-input" />
+          <select id="list-status" onchange="renderListView()" class="filter-input">
+            <option value="">All Status</option>
+            <option>Scheduled</option>
+            <option>In Progress</option>
+            <option>Completed</option>
+          </select>
+          <div class="search-wrap" id="list-search-wrap" style="display:none">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="list-customer-search" class="search-input" placeholder="Search customer…"
+              oninput="renderListView()" autocomplete="off" />
+          </div>
+        </div>
+        <div id="list-cards" class="list-cards"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Task Details Modal ──────────────────────────────────────── -->
+  <div id="details-overlay" class="modal-overlay" style="display:none" onclick="closeDetails(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h2>Task Details</h2>
+        <button class="modal-close" onclick="closeDetails()">✕</button>
+      </div>
+      <div class="detail-grid">
+        <div class="detail-item"><span class="dl">Customer</span><span id="d-customer" class="dv"></span></div>
+        <div class="detail-item"><span class="dl">Location</span><span id="d-location" class="dv"></span></div>
+        <div class="detail-item"><span class="dl">Date</span> <span id="d-date" class="dv"></span></div>
+        <div class="detail-item"><span class="dl">Time</span> <span id="d-time" class="dv"></span></div>
+        <div class="detail-item"><span class="dl">Status</span> <span id="d-status" class="dv"></span></div>
+        <div class="detail-item"><span class="dl">Progress</span><span id="d-progress" class="dv"></span></div>
+      </div>
+
+      <!-- ── Manager actions: Reschedule + Delete ───────────────── -->
+      <div id="mgr-actions" class="mgr-actions" style="display:none">
+        <button class="btn-reschedule" id="btn-reschedule-toggle" onclick="toggleReschedulePanel()">📅 Reschedule</button>
+        <button class="btn-delete-task" onclick="deleteTask()">🗑 Delete Task</button>
+      </div>
+
+      <!-- ── Reschedule inline panel ─────────────────────────────── -->
+      <div id="reschedule-panel" class="reschedule-panel" style="display:none">
+        <div class="rp-title">Reschedule Task</div>
+        <div id="rp-error" class="warn-box" style="display:none"></div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>New Start</label>
+            <input type="datetime-local" id="rp-start" />
+          </div>
+          <div class="form-group">
+            <label>New End</label>
+            <input type="datetime-local" id="rp-end" />
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn-submit" id="rp-save-btn" onclick="submitReschedule()">Save New Schedule</button>
+          <button class="btn-cancel" onclick="toggleReschedulePanel()">Cancel</button>
+        </div>
+      </div>
+
+      <div class="worker-progress-section">
+        <h4>Assigned Team</h4>
+        <div id="d-team-list"></div>
+      </div>
+      <div id="d-actions" class="d-actions"></div>
+      <div class="log-section">
+        <h3>Activity Log</h3>
+        <div id="d-logs"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Create Task Modal ───────────────────────────────────────── -->
+  <div id="create-overlay" class="modal-overlay" style="display:none" onclick="closeCreate(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h2>Assign New Task</h2>
+        <button class="modal-close" onclick="closeCreate()">✕</button>
+      </div>
+      <div id="create-error" class="error-box" style="display:none"></div>
+      <div id="overlap-warn" class="warn-box" style="display:none"></div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Customer *</label>
+          <select id="f-customer">
+            <option value="">-- Select --</option>
+          </select>
+          <span class="ferr" id="e-customer"></span>
+        </div>
+        <div class="form-group">
+          <label>Location</label>
+          <select id="f-location">
+            <option value="">-- Select --</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Assign Workers * <span class="hint">(select one or more)</span></label>
+        <div id="f-workers" class="checkbox-group"></div>
+        <span class="ferr" id="e-workers"></span>
+      </div>
+      <!-- Row: Date + Start Time -->
+      <div class="form-row">
+        <div class="form-group">
+          <label>Date *</label>
+          <input type="date" id="f-date" oninput="triggerOverlapCheck()" />
+          <span class="ferr" id="e-date"></span>
+        </div>
+        <div class="form-group">
+          <label>Start Time *</label>
+          <input type="time" id="f-time" oninput="triggerOverlapCheck()" />
+          <span class="ferr" id="e-time"></span>
+        </div>
+      </div>
+      <!-- Duration -->
+      <div class="form-group">
+        <label>Duration * <span class="hint">(minutes)</span></label>
+        <input type="number" id="f-duration" min="5" step="5" placeholder="e.g. 60"
+          oninput="triggerOverlapCheck()" />
+        <span class="ferr" id="e-duration"></span>
+      </div>
+      <div class="form-actions">
+        <button class="btn-submit" id="save-btn" onclick="submitJob()">Assign Task</button>
+        <button class="btn-cancel" onclick="closeCreate()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentUser = null, allJobs = [], weekStart = getMonday(new Date());
+    let overlapTimer = null, openJobId = null;
+
+    async function init() {
+      const res = await fetch('/api/me');
+      if (!res.ok) { window.location.href = '/login'; return; }
+      currentUser = await res.json();
+
+      const av = document.getElementById('sb-avatar');
+      av.textContent = currentUser.name[0];
+      av.style.background = currentUser.avatar_color;
+      document.getElementById('sb-name').textContent = currentUser.name;
+      document.getElementById('sb-role').textContent = currentUser.role === 'manager' ? 'Manager' : 'Worker';
+      if (currentUser.role === 'manager') {
+        document.getElementById('create-btn').style.display = 'flex';
+      }
+      // Customer search is on the Task List page for everyone
+      document.getElementById('list-search-wrap').style.display = 'flex';
+
+      await loadDropdowns();
+      await fetchJobs();
+      renderCalendar();
+      initSocket();
+    }
+
+    function initSocket() {
+      const socket = io();
+
+      // Register this client so the server can send targeted notifications
+      socket.emit('register', { user_id: currentUser.id });
+
+      // Global calendar/list refresh when any job changes
+      socket.on('jobs_updated', async () => {
+        await fetchJobs();
+        renderCalendar();
+        renderWeekTable();
+        if (openJobId !== null) await refreshOpenDetails(openJobId);
+      });
+
+      // ── Task assigned notification (workers only) ────────────────
+      socket.on('task_assigned', (data) => {
+        showToast(
+          '🔔 New Task Assigned!',
+          `<strong>${data.customer}</strong>${data.location !== '-' ? ' · ' + data.location : ''}<br>${data.start} – ${data.end}`,
+          `Assigned by ${data.manager}`,
+          'assign'
+        );
+      });
+
+      // ── Task rescheduled notification ────────────────────────
+      socket.on('task_rescheduled', (data) => {
+        showToast(
+          '⏰ Task Rescheduled',
+          `Your task has been rescheduled to<br><strong>${data.start} – ${data.end}</strong>`,
+          `Updated by ${data.manager}`,
+          'reschedule'
+        );
+      });
+
+      // ── Task deleted notification ─────────────────────────────
+      socket.on('task_deleted', (data) => {
+        showToast(
+          '🗑 Task Cancelled',
+          `Your task for <strong>${data.customer}</strong> has been cancelled.`,
+          `Removed by ${data.manager}`,
+          'delete'
+        );
+      });
+    }
+
+    async function fetchJobs() {
+      const res = await fetch('/api/jobs');
+      allJobs = await res.json();
+    }
+
+    // ── Week helpers ──────────────────────────────────────────────────
+    function getMonday(d) {
+      const dt = new Date(d), day = dt.getDay();
+      dt.setDate(dt.getDate() - day + (day === 0 ? -6 : 1));
+      dt.setHours(0, 0, 0, 0); return dt;
+    }
+    function changeWeek(dir) { weekStart = new Date(weekStart); weekStart.setDate(weekStart.getDate() + dir * 7); renderCalendar(); }
+    function goToday() { weekStart = getMonday(new Date()); renderCalendar(); }
+    function fmtShortDate(d) { return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }); }
+    function fmtTime(d) { return new Date(d).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }); }
+    function isSameDay(a, b) { return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate(); }
+    function getCustomerFilter() { return ''; }  // search is list-only now
+    function onCustomerSearch() {}                // no-op (topbar search removed)
+
+    // ── Status UI ─────────────────────────────────────────────────────
+    function statusBadge(status) {
+      // Assigned/Scheduled → yellow, In Progress → blue, Completed → green
+      const cls = { 'Scheduled': 'badge-yellow', 'In Progress': 'badge-blue', 'Completed': 'badge-green' };
+      const live = status === 'In Progress' ? '<span class="live-dot"></span>' : '';
+      return `<span class="badge ${cls[status] || 'badge-yellow'}">${live}${status}</span>`;
+    }
+    function workerStatusBadge(ws) {
+      const map = {
+        'Pending': { cls: 'pending', icon: '🔵', label: 'Scheduled' },
+        'Started': { cls: 'started', icon: '🟢', label: 'In Progress' },
+        'Completed': { cls: 'completed', icon: '✅', label: 'Completed' }
+      };
+      const m = map[ws] || map['Pending'];
+      return `<span class="wpr-badge ${m.cls}">${m.icon} ${m.label}</span>`;
+    }
+    function progressBarHTML(pct, done, total) {
+      return `<div class="progress-bar-wrap">
+    <div class="progress-bar-track"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+    <div class="progress-label">${done}/${total} Completed (${pct}%)</div>
+  </div>`;
+    }
+
+    // ── Calendar ──────────────────────────────────────────────────────
+    function renderCalendar() {
+      const days = [];
+      for (let i = 0; i < 7; i++) { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); days.push(d); }
+      document.getElementById('week-label').textContent = `${fmtShortDate(days[0])} – ${fmtShortDate(days[6])} ${days[6].getFullYear()}`;
+
+      // ── Filter by customer search (manager only) ─────────────────
+      const cFilter = getCustomerFilter();
+      const filteredJobs = cFilter ? allJobs.filter(j => j.customer.toLowerCase().includes(cFilter)) : allJobs;
+
+      // ── Build worker map from filtered jobs ───────────────────────
+      const workerMap = {};
+      filteredJobs.forEach(job => {
+        const js = new Date(job.start);
+        if (days.some(d => isSameDay(d, js))) {
+          (job.workers || []).forEach(w => {
+            if (currentUser.role === 'manager' || w.id === currentUser.id)
+              workerMap[w.id] = w;
+          });
+        }
+      });
+      const workers = Object.values(workerMap);
+
+      const grid = document.getElementById('cal-grid');
+      grid.innerHTML = '';
+      grid.style.gridTemplateColumns = '140px repeat(7,1fr)';
+
+      // Corner + headers
+      const corner = document.createElement('div');
+      corner.className = 'cal-cell cal-header cal-corner';
+      corner.textContent = 'Workers'; grid.appendChild(corner);
+      const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const today = new Date();
+      days.forEach((d, i) => {
+        const cell = document.createElement('div');
+        const isT = isSameDay(d, today);
+        cell.className = 'cal-cell cal-header' + (isT ? ' cal-today-header' : '');
+        cell.innerHTML = `<span class="cal-day-name">${dayNames[i]}</span><span class="cal-day-num${isT ? ' today-num' : ''}">${d.getDate()}</span>`;
+        grid.appendChild(cell);
+      });
+
+      if (!workers.length) {
+        const e = document.createElement('div');
+        e.className = 'cal-empty'; e.style.gridColumn = '1/-1';
+        e.textContent = 'No tasks scheduled this week.'; grid.appendChild(e);
+      }
+
+      workers.forEach(worker => {
+        const wc = document.createElement('div');
+        wc.className = 'cal-cell cal-worker-cell';
+        wc.innerHTML = `<div class="avatar sm" style="background:${worker.avatar_color}">${worker.name[0]}</div><span class="worker-name-text">${worker.name}</span>`;
+        grid.appendChild(wc);
+
+        days.forEach(day => {
+          const cell = document.createElement('div');
+          cell.className = 'cal-cell cal-day-cell' + (isSameDay(day, today) ? ' cal-today-col' : '');
+          allJobs.filter(job => isSameDay(new Date(job.start), day)
+              && (job.workers || []).some(w => w.id === worker.id)
+              && (!cFilter || job.customer.toLowerCase().includes(cFilter)))
+            .forEach(job => {
+              const card = document.createElement('div');
+              card.className = `cal-job-card status-${job.status.replace(/ /g, '-')}`;
+              card.innerHTML = `
+            ${job.status === 'In Progress' ? '<span class="live-dot"></span>' : ''}
+            <div class="cjc-customer">${job.customer}</div>
+            <div class="cjc-time">${fmtTime(job.start)} – ${fmtTime(job.end)}</div>
+            <div class="cjc-progress">${job.completed_count}/${job.total_count} done</div>`;
+              card.onclick = () => openDetails(job.id);
+              cell.appendChild(card);
+            });
+          grid.appendChild(cell);
+        });
+      });
+      renderWeekTable();
+    }
+
+    // ── Week table ────────────────────────────────────────────────────
+    function renderWeekTable() {
+      const days = [];
+      for (let i = 0; i < 7; i++) { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); days.push(d); }
+      const cFilter = getCustomerFilter();
+      const weekJobs = allJobs.filter(job =>
+        days.some(d => isSameDay(d, new Date(job.start))) &&
+        (!cFilter || job.customer.toLowerCase().includes(cFilter))
+      );
+      const tbody = document.getElementById('job-table-body'); tbody.innerHTML = '';
+      if (!weekJobs.length) { tbody.innerHTML = `<tr><td colspan="7" class="no-data">${cFilter ? 'No tasks match your search.' : 'No tasks this week.'}</td></tr>`; return; }
+      weekJobs.forEach(job => {
+        const avatars = (job.workers || []).map(w => `<span class="avatar xs" style="background:${w.avatar_color}" title="${w.name}">${w.name[0]}</span>`).join('');
+        const names = (job.workers || []).map(w => w.name).join(', ');
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+      <td>${job.customer}<span class="loc-text">${job.location !== '-' ? ' · ' + job.location : ''}</span></td>
+      <td>${statusBadge(job.status)}</td>
+      <td>${progressBarHTML(job.progress_pct, job.completed_count, job.total_count)}</td>
+      <td><div class="avatar-row">${avatars}<span class="worker-names-text">${names}</span></div></td>
+      <td>${fmtTime(job.start)}</td><td>${fmtTime(job.end)}</td>
+      <td><button class="tbl-btn" onclick="openDetails(${job.id})">View</button></td>`;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // ── List view ─────────────────────────────────────────────────────
+    function renderListView() {
+      const df = document.getElementById('list-date').value;
+      const sf = document.getElementById('list-status').value;
+      const cf = (document.getElementById('list-customer-search')?.value || '').trim().toLowerCase();
+      let jobs = allJobs;
+      if (df) jobs = jobs.filter(j => j.start.startsWith(df));
+      if (sf) jobs = jobs.filter(j => j.status === sf);
+      if (cf) jobs = jobs.filter(j => j.customer.toLowerCase().includes(cf));
+      const c = document.getElementById('list-cards'); c.innerHTML = '';
+      if (!jobs.length) { c.innerHTML = `<div class="empty-state">${cf ? 'No customers match your search.' : 'No tasks found.'}</div>`; return; }
+      jobs.forEach(job => {
+        const avatars = (job.workers || []).map(w => `<span class="avatar sm" style="background:${w.avatar_color}">${w.name[0]}</span>`).join('');
+        const names = (job.workers || []).map(w => w.name).join(', ');
+        const card = document.createElement('div');
+        card.className = `list-job-card status-left-${job.status.replace(/ /g, '-')}`;
+        card.innerHTML = `
+      <div class="ljc-left">
+        <div class="ljc-customer">${job.customer}</div>
+        <div class="ljc-location">${job.location !== '-' ? job.location : ''}</div>
+        <div class="ljc-workers"><div class="avatar-row">${avatars}<span>${names}</span></div></div>
+        ${progressBarHTML(job.progress_pct, job.completed_count, job.total_count)}
+      </div>
+      <div class="ljc-right">
+        <div class="ljc-time">${fmtTime(job.start)} – ${fmtTime(job.end)}</div>
+        <div>${statusBadge(job.status)}</div>
+        <button class="tbl-btn mt8" onclick="openDetails(${job.id})">Details</button>
+      </div>`;
+        c.appendChild(card);
+      });
+    }
+
+    // ── View switch ───────────────────────────────────────────────────
+    function showView(v, event) {
+      document.getElementById('view-calendar').style.display = v === 'calendar' ? 'block' : 'none';
+      document.getElementById('view-list').style.display = v === 'list' ? 'block' : 'none';
+      document.getElementById('week-nav').style.display = v === 'calendar' ? 'flex' : 'none';
+      document.getElementById('view-title').textContent = v === 'calendar' ? 'Task Calendar' : 'Task List';
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      if (event && event.currentTarget) event.currentTarget.classList.add('active');
+      if (v === 'list') renderListView();
+    }
+
+    // ── Details modal ─────────────────────────────────────────────────
+    async function openDetails(jobId) {
+      openJobId = jobId;
+      await refreshOpenDetails(jobId);
+      document.getElementById('details-overlay').style.display = 'flex';
+    }
+    async function refreshOpenDetails(jobId) {
+      const res = await fetch(`/api/jobs/${jobId}`);
+      if (!res.ok) return;
+      const job = await res.json();
+      document.getElementById('d-customer').textContent = job.customer;
+      document.getElementById('d-location').textContent = job.location || '-';
+      const s = new Date(job.start_time), e = new Date(job.end_time);
+      document.getElementById('d-date').textContent = s.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+      document.getElementById('d-time').textContent = `${fmtTime(s)} – ${fmtTime(e)}`;
+      document.getElementById('d-status').innerHTML = statusBadge(job.status);
+      document.getElementById('d-progress').innerHTML = progressBarHTML(job.progress_pct, job.completed_count, job.total_count);
+
+      // Team list
+      document.getElementById('d-team-list').innerHTML = (job.workers || []).map((w, i) => `
+    <div class="wpr-row">
+      <span class="avatar xs" style="background:${w.avatar_color}">${w.name[0]}</span>
+      <span class="wpr-name">${i + 1}. ${w.name}</span>
+      ${workerStatusBadge(w.worker_status)}
+    </div>`).join('');
+
+      // Action button — worker sees ONLY their own button; manager sees reschedule/delete
+      const actEl = document.getElementById('d-actions'); actEl.innerHTML = '';
+      const mgrBar = document.getElementById('mgr-actions');
+      if (currentUser.role === 'manager' && job.status === 'Scheduled') {
+        mgrBar.style.display = 'flex';
+        // Pre-fill reschedule inputs with current times
+        document.getElementById('rp-start').value = job.start_time.slice(0,16);
+        document.getElementById('rp-end').value   = job.end_time.slice(0,16);
+        document.getElementById('reschedule-panel').style.display = 'none';
+        document.getElementById('rp-error').style.display = 'none';
+      } else {
+        mgrBar.style.display = 'none';
+        document.getElementById('reschedule-panel').style.display = 'none';
+      }
+      if (currentUser.role === 'worker') {
+        const me = (job.workers || []).find(w => w.id === currentUser.id);
+        if (me) {
+          if (me.worker_status === 'Pending') {
+            actEl.innerHTML = `<button class="btn-my-action start" onclick="doWorkerStatus(${job.id},${currentUser.id},'In Progress')">▶ Start My Task</button>`;
+          } else if (me.worker_status === 'Started') {
+            actEl.innerHTML = `<button class="btn-my-action complete" onclick="doWorkerStatus(${job.id},${currentUser.id},'Completed')">✓ Mark My Task Complete</button>`;
+          } else {
+            actEl.innerHTML = `<div class="already-done">✅ You have completed your task</div>`;
+          }
+        }
+      }
+
+      // Logs
+      const logsEl = document.getElementById('d-logs');
+      logsEl.innerHTML = !(job.logs || []).length ? '<p class="no-log">No activity yet.</p>'
+        : job.logs.map(l => `<div class="log-item"><span class="log-dot"></span><div><div class="log-action">${l.action}</div><div class="log-time">${l.created_at}</div></div></div>`).join('');
+    }
+    function closeDetails(e) {
+      if (!e || e.target === document.getElementById('details-overlay')) {
+        document.getElementById('details-overlay').style.display = 'none';
+        document.getElementById('reschedule-panel').style.display = 'none';
+        openJobId = null;
+      }
+    }
+
+    // ── Manager: Toggle reschedule panel ──────────────────────────
+    function toggleReschedulePanel() {
+      const panel = document.getElementById('reschedule-panel');
+      const isOpen = panel.style.display !== 'none';
+      panel.style.display = isOpen ? 'none' : 'block';
+      document.getElementById('rp-error').style.display = 'none';
+      document.getElementById('btn-reschedule-toggle').textContent = isOpen ? '📅 Reschedule' : '✕ Cancel Reschedule';
+    }
+
+    // ── Manager: Submit reschedule ─────────────────────────────────
+    async function submitReschedule() {
+      const startVal = document.getElementById('rp-start').value;
+      const endVal   = document.getElementById('rp-end').value;
+      const errEl    = document.getElementById('rp-error');
+      const saveBtn  = document.getElementById('rp-save-btn');
+      errEl.style.display = 'none';
+      if (!startVal || !endVal) { errEl.textContent = '⚠️ Both start and end times are required.'; errEl.style.display = 'block'; return; }
+      if (new Date(endVal) <= new Date(startVal)) { errEl.textContent = '⚠️ End time must be after start time.'; errEl.style.display = 'block'; return; }
+
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+      const res = await fetch(`/api/jobs/${openJobId}/reschedule`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ start_time: startVal, end_time: endVal })
+      });
+      const data = await res.json();
+      saveBtn.disabled = false; saveBtn.textContent = 'Save New Schedule';
+      if (!res.ok) { errEl.textContent = '⚠️ ' + (data.error || 'Failed to reschedule.'); errEl.style.display = 'block'; return; }
+      toggleReschedulePanel();
+      await fetchJobs(); renderCalendar(); await refreshOpenDetails(openJobId);
+    }
+
+    // ── Manager: Delete task ───────────────────────────────────────
+    async function deleteTask() {
+      if (!confirm('Are you sure you want to permanently delete this task? This cannot be undone.')) return;
+      const res = await fetch(`/api/jobs/${openJobId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) { alert(data.error || 'Failed to delete task.'); return; }
+      closeDetails();
+      await fetchJobs(); renderCalendar();
+    }
+    async function doWorkerStatus(jobId, workerId, newStatus) {
+      const btn = document.querySelector('.btn-my-action');
+      if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
+      const res = await fetch(`/api/jobs/${jobId}/workers/${workerId}/status`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ worker_status: newStatus })
+      });
+      const data = await res.json();
+      if (!res.ok) { alert(data.error || 'Failed to update'); if (btn) btn.disabled = false; return; }
+      await fetchJobs(); renderCalendar(); await refreshOpenDetails(jobId);
+    }
+
+    // ── Create task ───────────────────────────────────────────────────
+    async function loadDropdowns() {
+      const [wR, cR, lR] = await Promise.all([fetch('/api/workers'), fetch('/api/customers'), fetch('/api/locations')]);
+      const [workers, customers, locations] = await Promise.all([wR.json(), cR.json(), lR.json()]);
+      const cSel = document.getElementById('f-customer');
+      customers.forEach(c => cSel.innerHTML += `<option value="${c.id}">${c.name}</option>`);
+      const lSel = document.getElementById('f-location');
+      locations.forEach(l => lSel.innerHTML += `<option value="${l.id}">${l.name}</option>`);
+      const wBox = document.getElementById('f-workers');
+      workers.forEach(w => { wBox.innerHTML += `<label class="checkbox-label"><input type="checkbox" value="${w.id}" onchange="triggerOverlapCheck()"/><span class="avatar xs" style="background:${w.avatar_color}">${w.name[0]}</span>${w.name}</label>`; });
+    }
+    function openCreateForm() { document.getElementById('create-overlay').style.display = 'flex'; }
+    function closeCreate(e) {
+      if (!e || e.target === document.getElementById('create-overlay')) {
+        document.getElementById('create-overlay').style.display = 'none';
+        document.getElementById('create-error').style.display = 'none';
+        document.getElementById('overlap-warn').style.display = 'none';
+        document.getElementById('save-btn').disabled = false;
+      }
+    }
+
+    // Build datetime string from date + time inputs using LOCAL time (not UTC)
+    function buildStartEnd() {
+      const date     = document.getElementById('f-date').value;      // 'YYYY-MM-DD'
+      const time     = document.getElementById('f-time').value;      // 'HH:MM'
+      const duration = parseInt(document.getElementById('f-duration').value) || 0;
+      if (!date || !time || !duration) return null;
+      const start = new Date(`${date}T${time}`);
+      const end   = new Date(start.getTime() + duration * 60000);
+      // Format using LOCAL time — avoids UTC timezone shift (e.g. IST = UTC+5:30)
+      const pad = n => String(n).padStart(2, '0');
+      const fmt = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+      return { start: fmt(start), end: fmt(end) };
+    }
+    function triggerOverlapCheck() { clearTimeout(overlapTimer); overlapTimer = setTimeout(checkOverlap, 600); }
+    async function checkOverlap() {
+      const times = buildStartEnd();
+      const wids  = getCheckedWorkers();
+      const warn  = document.getElementById('overlap-warn');
+      const btn   = document.getElementById('save-btn');
+      if (!times || !wids.length) { warn.style.display = 'none'; btn.disabled = false; return; }
+      const res = await fetch('/api/jobs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_id: 1, worker_ids: wids, start_time: times.start, end_time: times.end, _check_only: true })
+      });
+      if (res.status === 409) { const d = await res.json(); warn.textContent = '⚠️ ' + d.error; warn.style.display = 'block'; btn.disabled = true; }
+      else { warn.style.display = 'none'; btn.disabled = false; }
+    }
+    function getCheckedWorkers() { return [...document.querySelectorAll('#f-workers input:checked')].map(i => Number(i.value)); }
+    async function submitJob() {
+      const errBox = document.getElementById('create-error'); errBox.style.display = 'none';
+      ['e-customer', 'e-workers', 'e-date', 'e-time', 'e-duration'].forEach(id => { document.getElementById(id).textContent = ''; });
+      const cid  = document.getElementById('f-customer').value;
+      const lid  = document.getElementById('f-location').value;
+      const wids = getCheckedWorkers();
+      const date = document.getElementById('f-date').value;
+      const time = document.getElementById('f-time').value;
+      const dur  = document.getElementById('f-duration').value;
+      let valid  = true;
+      if (!cid)         { document.getElementById('e-customer').textContent = 'Required.'; valid = false; }
+      if (!wids.length) { document.getElementById('e-workers').textContent  = 'Select at least one worker.'; valid = false; }
+      if (!date)        { document.getElementById('e-date').textContent     = 'Required.'; valid = false; }
+      if (!time)        { document.getElementById('e-time').textContent     = 'Required.'; valid = false; }
+      if (!dur || Number(dur) < 5) { document.getElementById('e-duration').textContent = 'Enter a valid duration (≥5 min).'; valid = false; }
+      if (!valid) return;
+      const times = buildStartEnd();
+      if (!times) { errBox.textContent = 'Could not calculate end time. Check date, time and duration.'; errBox.style.display = 'block'; return; }
+      const res = await fetch('/api/jobs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_id: Number(cid), location_id: lid ? Number(lid) : null, worker_ids: wids, start_time: times.start, end_time: times.end })
+      });
+      const data = await res.json();
+      if (res.status === 201) { closeCreate(); await fetchJobs(); renderCalendar(); }
+      else if (res.status === 409) { errBox.textContent = data.error; errBox.style.display = 'block'; }
+      else if (data.errors) { Object.entries(data.errors).forEach(([k, v]) => { const el = document.getElementById('e-' + k.replace('_ids', 's').replace('_id', '')); if (el) el.textContent = v; }); }
+    }
+    async function logout() { await fetch('/api/logout', { method: 'POST' }); window.location.href = '/login'; }
+
+    // ── Toast notification helper ──────────────────────────────
+    function showToast(title, msg, sub, type) {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      const extraClass = type === 'reschedule' ? ' toast-reschedule'
+                       : type === 'delete'     ? ' toast-delete'
+                       : '';
+      toast.className = 'toast' + extraClass;
+      const icon = type === 'reschedule' ? '⏰' : type === 'delete' ? '🗑' : '🔔';
+      toast.innerHTML = `
+        <div class="toast-icon">${icon}</div>
+        <div class="toast-body">
+          <div class="toast-title">${title}</div>
+          <div class="toast-msg">${msg}</div>
+          ${sub ? `<div class="toast-sub">${sub}</div>` : ''}
+        </div>
+        <button class="toast-close" onclick="dismissToast(this.closest('.toast'))">&#10005;</button>`;
+      container.appendChild(toast);
+
+      // Auto-dismiss after 8 seconds
+      setTimeout(() => dismissToast(toast), 8000);
+    }
+
+    function dismissToast(toast) {
+      if (!toast || toast.classList.contains('toast-out')) return;
+      toast.classList.add('toast-out');
+      setTimeout(() => toast.remove(), 320);
+    }
+
+    init();
+  </script>
+</body>
+
+</html>
