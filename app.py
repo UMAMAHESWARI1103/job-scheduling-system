@@ -1,4 +1,3 @@
-```python
 from flask import Flask, request, jsonify, render_template, session, redirect, url_for
 from flask_cors import CORS
 from flask_socketio import SocketIO
@@ -1206,4 +1205,4 @@ if __name__ == '__main__':
         port=int(os.environ.get('PORT', 5000)),
         debug=True
     )
-```
+
