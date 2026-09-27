@@ -11,7 +11,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY')
 
 CORS(app, supports_credentials=True)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Maps user_id → socket SID for targeted notifications
 user_sockets = {}
