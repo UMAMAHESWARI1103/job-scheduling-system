@@ -1,6 +1,3 @@
-DROP DATABASE IF EXISTS job_scheduling;
-CREATE DATABASE job_scheduling;
-USE job_scheduling;
 
 CREATE TABLE workers (
   id INT AUTO_INCREMENT PRIMARY KEY,
